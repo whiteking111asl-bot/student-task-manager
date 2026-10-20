@@ -138,3 +138,8 @@ Agile.
 До MVP належать додавання, перевірка даних, збереження і перегляд завдань, редагування та зміна статусу. Пошук і перемикання теми заплановано після MVP.
 
 Канбан-дошка: https://github.com/users/whiteking111asl-bot/projects/1/views/2
+## Документація
+
+Детальний опис програмного продукту Student Task Manager
+розташований у файлі
+[docs/product-description.md](docs/product-description.md).
