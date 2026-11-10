@@ -146,3 +146,8 @@ Agile.
 ## Вимоги
 
 [Переглянути вимоги до продукту](docs/requirements.md).
+
+## User stories
+
+Потреби студентів і критерії приймання функцій MVP описано у файлі
+[docs/user-stories.md](docs/user-stories.md).
