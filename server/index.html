@@ -1,0 +1,267 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Student Task Manager</title>
+<style>
+:root {font:16px/1.5 Inter,system-ui,sans-serif;color:#1d293c;background:#f1f4fa}
+body{margin:0} main{max-width:62rem;margin:auto;padding:1rem}
+header{display:flex;align-items:center;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-bottom:1rem}
+h1{font-size:clamp(1.55rem,5vw,2.4rem);margin:0}h2,h3,p{margin:0 0 .65rem}
+section,article,form.panel{background:#fff;border:1px solid #c9d4e5;border-radius:12px;padding:1rem;margin-bottom:1rem}
+label{display:grid;gap:.25rem;font-weight:600;min-width:0}
+form{display:grid;gap:.75rem} input,textarea,select,button{font:inherit;box-sizing:border-box;min-width:0;border:1px solid #7c8ba1;border-radius:6px;padding:.5rem .65rem;background:white;color:inherit}
+textarea{resize:vertical;width:100%} button{cursor:pointer} button.primary{background:#2549a0;border-color:#2549a0;color:#fff}
+button:disabled{opacity:.6;cursor:wait} :focus-visible{outline:3px solid #b75c00;outline-offset:2px}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}
+.row{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center}
+#filters{grid-template-columns:repeat(auto-fit,minmax(min(100%,10rem),1fr));margin-bottom:1rem}
+#notice{min-height:1.5em;margin:0 0 .75rem}#notice[data-error]{color:#9b2020}
+#tasks article{overflow-wrap:anywhere} .meta{color:#465570}.overdue{color:#9b2020;font-weight:700}
+.description{white-space:pre-wrap} [hidden]{display:none!important}
+@media(max-width:640px){.grid{grid-template-columns:1fr}main{padding:.75rem}header{align-items:flex-start}}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Student Task Manager</h1>
+    <div id="account" class="row" hidden><span id="name"></span><button id="logout">Вийти</button></div>
+  </header>
+  <p id="notice" role="status" aria-live="polite">Завантаження…</p>
+  <div id="auth" class="grid" hidden>
+    <form class="panel" id="login">
+      <h2>Вхід</h2>
+      <label>Електронна адреса<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+      <label>Пароль<input name="password" type="password" autocomplete="current-password" required maxlength="128"></label>
+      <button class="primary">Увійти</button>
+    </form>
+    <form class="panel" id="register">
+      <h2>Реєстрація</h2>
+      <label>Ім’я<input name="name" autocomplete="name" required maxlength="80"></label>
+      <label>Електронна адреса<input name="email" type="email" autocomplete="email" required maxlength="254"></label>
+      <label>Пароль<input name="password" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+      <label>Підтвердження пароля<input name="confirmation" type="password" autocomplete="new-password" required minlength="8" maxlength="128"></label>
+      <button>Створити обліковий запис</button>
+    </form>
+  </div>
+  <div id="workspace" hidden>
+    <section>
+      <h2 id="editor-title">Нове завдання</h2>
+      <form id="editor">
+        <label>Назва<input name="title" required maxlength="120"></label>
+        <label>Опис<textarea name="description" rows="3" maxlength="2000"></textarea></label>
+        <div class="grid">
+          <label>Дата здачі<input name="due_date" type="date" required></label>
+          <label>Пріоритет<select name="priority"><option value="1">Низький</option><option value="2" selected>Середній</option><option value="3">Високий</option></select></label>
+          <label>Категорія<select name="category_id" required></select></label>
+        </div>
+        <div class="row"><button class="primary" id="save">Додати завдання</button><button type="button" id="cancel" hidden>Скасувати</button></div>
+      </form>
+    </section>
+    <section>
+      <h2>Мої завдання</h2>
+      <form id="filters">
+        <label>Пошук за назвою<input name="q" type="search" maxlength="120"></label>
+        <label>Стан<select name="state"><option value="all">Усі</option><option value="active">Активні</option><option value="completed">Виконані</option></select></label>
+        <label>Категорія<select name="category"></select></label>
+        <label>Пріоритет<select name="priority"><option value="0">Усі</option><option value="1">Низький</option><option value="2">Середній</option><option value="3">Високий</option></select></label>
+        <label>Сортування<select name="sort"><option value="due">За датою</option><option value="priority">За пріоритетом</option></select></label>
+        <button type="submit">Застосувати</button>
+      </form>
+      <p id="list-status" role="status"></p>
+      <div id="tasks"></div>
+    </section>
+  </div>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+const editor = byId("editor");
+const filters = byId("filters");
+const priorities = ["", "Низький", "Середній", "Високий"];
+let categories = [];
+let editing = null;
+let listRequest = 0;
+
+class RequestError extends Error {
+  constructor(message, status) { super(message); this.status = status; }
+}
+async function api(path, method = "GET", data) {
+  let response;
+  try {
+    response = await fetch("/api/" + path, {
+      method, headers: {"Content-Type":"application/json","X-STM-Request":"1"},
+      body: data === undefined ? undefined : JSON.stringify(data)
+    });
+  } catch {
+    throw new RequestError("Сервер недоступний. Перевірте підключення.", 0);
+  }
+  if (response.status === 204) return;
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = typeof result.detail === "string" ? result.detail : "Перевірте введені дані.";
+    throw new RequestError(response.status >= 500 && !result.detail ? "Операцію не вдалося виконати." : message, response.status);
+  }
+  return result;
+}
+function notice(message, error = false) {
+  const node = byId("notice");
+  node.textContent = message;
+  node.toggleAttribute("data-error", error);
+}
+function resetEditor() {
+  editing = null;
+  editor.reset();
+  byId("editor-title").textContent = "Нове завдання";
+  byId("save").textContent = "Додати завдання";
+  byId("cancel").hidden = true;
+}
+function showAuth() {
+  listRequest += 1;
+  resetEditor();
+  filters.reset();
+  byId("tasks").replaceChildren();
+  byId("list-status").textContent = "";
+  byId("name").textContent = "";
+  byId("workspace").hidden = byId("account").hidden = true;
+  byId("auth").hidden = false;
+}
+async function showWorkspace(user) {
+  categories = await api("categories");
+  editor.elements.category_id.replaceChildren(...categories.map(c => new Option(c.name, c.id)));
+  filters.elements.category.replaceChildren(new Option("Усі", 0), ...categories.map(c => new Option(c.name, c.id)));
+  byId("name").textContent = user.name;
+  byId("auth").hidden = true;
+  byId("workspace").hidden = byId("account").hidden = false;
+  await refresh();
+}
+function errorNotice(error) {
+  if (error.status === 401 && !byId("workspace").hidden) showAuth();
+  notice(error.message, true);
+}
+async function busy(button, operation) {
+  button.disabled = true;
+  try { await operation(); }
+  catch (error) { errorNotice(error); }
+  finally { button.disabled = false; }
+}
+function bindForm(id, handler) {
+  byId(id).addEventListener("submit", event => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = Object.fromEntries(new FormData(form));
+    busy(form.querySelector('button:not([type="button"])'), () => handler(data, form));
+  });
+}
+bindForm("register", async (data, form) => {
+  const result = await api("register", "POST", data);
+  byId("login").elements.email.value = data.email;
+  form.reset();
+  byId("login").elements.password.focus();
+  notice(result.message);
+});
+bindForm("login", async (data, form) => {
+  const user = await api("login", "POST", data);
+  form.reset();
+  await showWorkspace(user);
+  notice("Вхід виконано.");
+});
+byId("logout").addEventListener("click", event => busy(event.currentTarget, async () => {
+  await api("logout", "POST");
+  showAuth();
+  notice("Ви вийшли з облікового запису.");
+}));
+bindForm("editor", async data => {
+  if (!data.title.trim()) {
+    editor.elements.title.focus();
+    throw new Error("Введіть назву завдання.");
+  }
+  data.category_id = Number(data.category_id);
+  data.priority = Number(data.priority);
+  const id = editing;
+  await api(id === null ? "tasks" : "tasks/" + id, id === null ? "POST" : "PUT", data);
+  resetEditor();
+  if (id === null) filters.reset();
+  notice(id === null ? "Завдання додано." : "Зміни збережено.");
+  await refresh();
+});
+byId("cancel").addEventListener("click", resetEditor);
+filters.addEventListener("submit", event => { event.preventDefault(); refresh(); });
+filters.addEventListener("change", refresh);
+function make(tag, text, className = "") {
+  const element = document.createElement(tag);
+  element.textContent = text;
+  element.className = className;
+  return element;
+}
+function action(container, text, handler) {
+  const button = make("button", text);
+  button.addEventListener("click", () => busy(button, handler));
+  container.append(button);
+}
+function render(tasks, filtered) {
+  const container = byId("tasks");
+  container.replaceChildren();
+  byId("list-status").textContent = tasks.length ? "" :
+    filtered ? "За цими умовами завдань немає." : "Завдань поки немає.";
+  const now = new Date();
+  const today = [now.getFullYear(), String(now.getMonth()+1).padStart(2,"0"), String(now.getDate()).padStart(2,"0")].join("-");
+  for (const task of tasks) {
+    const card = document.createElement("article");
+    const category = categories.find(item => item.id === task.category_id)?.name ?? "";
+    const status = task.completed ? "Виконано" : "Активне";
+    card.append(make("h3", task.title),
+      make("p", [category, task.due_date, "Пріоритет: " + priorities[task.priority], status].join(" · "), "meta"));
+    if (task.description) card.append(make("p", task.description, "description"));
+    if (!task.completed && task.due_date < today) card.append(make("p", "Прострочено", "overdue"));
+    const actions = make("div", "", "row");
+    action(actions, "Редагувати", async () => {
+      editing = task.id;
+      for (const key of ["title","description","due_date","priority","category_id"]) editor.elements[key].value = task[key];
+      byId("editor-title").textContent = "Редагування завдання";
+      byId("save").textContent = "Зберегти зміни";
+      byId("cancel").hidden = false;
+      editor.elements.title.focus();
+    });
+    action(actions, task.completed ? "Повернути до активних" : "Позначити виконаним", async () => {
+      await api("tasks/" + task.id, "PATCH", {completed:!task.completed});
+      notice("Стан завдання оновлено.");
+      await refresh();
+    });
+    action(actions, "Видалити", async () => {
+      await api("tasks/" + task.id, "DELETE");
+      if (editing === task.id) resetEditor();
+      notice("Завдання видалено.");
+      await refresh();
+    });
+    card.append(actions);
+    container.append(card);
+  }
+}
+async function refresh() {
+  const request = ++listRequest;
+  const parameters = new URLSearchParams(new FormData(filters));
+  const filtered = parameters.get("q").trim() || parameters.get("state") !== "all" ||
+    parameters.get("category") !== "0" || parameters.get("priority") !== "0";
+  byId("list-status").textContent = "Завантаження завдань…";
+  try {
+    const tasks = await api("tasks?" + parameters);
+    if (request === listRequest) render(tasks, filtered);
+  } catch (error) {
+    if (request !== listRequest) return;
+    byId("list-status").textContent = "Не вдалося завантажити завдання.";
+    errorNotice(error);
+  }
+}
+api("me").then(async user => {
+  notice("");
+  await showWorkspace(user);
+}).catch(error => {
+  showAuth();
+  if (error.status === 401) notice("");
+  else errorNotice(error);
+});
+</script>
+</body>
+</html>
