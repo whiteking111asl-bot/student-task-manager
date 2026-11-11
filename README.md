@@ -172,3 +172,8 @@ Agile.
 Створено ескізи списку завдань, форми створення та перегляду вибраного запису.
 Зображення, опис екранів і переходи наведено у
 [docs/screen-sketches.md](docs/screen-sketches.md).
+
+## Прототип інтерфейсу
+
+- [Опис прототипу](docs/prototype.md)
+- [Відкрити клікабельний прототип у Figma](https://www.figma.com/proto/VGoGwDsLOAimlexmmisqRK/Untitled?page-id=0%3A1&node-id=2-2&starting-point-node-id=2%3A2&scaling=min-zoom&content-scaling=fixed)
